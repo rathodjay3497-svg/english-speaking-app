@@ -22,9 +22,29 @@ import type {
 // "https://english-speaking-app-backend.onrender.com/api".
 const api = axios.create({ baseURL: import.meta.env.VITE_API_BASE_URL ?? '/api' });
 
+// In-memory cache for static, read-only content. Lives as long as the JS
+// bundle (i.e. until a full page reload), so navigating between pages reuses
+// the already-fetched data instead of re-firing the same requests. Storing the
+// Promise (not the resolved value) also de-duplicates concurrent in-flight
+// calls — e.g. a `Promise.all` over all categories from two components that
+// mount close together shares one request per key.
+const cache = new Map<string, Promise<unknown>>();
+
+function memoize<T>(key: string, fetcher: () => Promise<T>): Promise<T> {
+  const hit = cache.get(key);
+  if (hit) return hit as Promise<T>;
+  const p = fetcher().catch(err => {
+    cache.delete(key); // don't cache failures — allow retry on next call
+    throw err;
+  });
+  cache.set(key, p);
+  return p;
+}
+
 export const scenariosApi = {
-  list: () => api.get<Scenario[]>('/scenarios').then(r => r.data),
-  get: (id: number) => api.get<Scenario>(`/scenarios/${id}`).then(r => r.data),
+  list: () => memoize('scenarios:list', () => api.get<Scenario[]>('/scenarios').then(r => r.data)),
+  get: (id: number) =>
+    memoize(`scenarios:${id}`, () => api.get<Scenario>(`/scenarios/${id}`).then(r => r.data)),
 };
 
 export const sessionsApi = {
@@ -49,27 +69,33 @@ export const progressApi = {
 };
 
 export const idiomsApi = {
-  list: () => api.get<IdiomsLibrary>('/idioms').then(r => r.data),
+  list: () => memoize('idioms:list', () => api.get<IdiomsLibrary>('/idioms').then(r => r.data)),
 };
 
 export const vocabularyApi = {
-  index: () => api.get<VocabIndex>('/vocabulary').then(r => r.data),
+  index: () => memoize('vocab:index', () => api.get<VocabIndex>('/vocabulary').then(r => r.data)),
   category: (id: number) =>
-    api.get<VocabCategoryDetail>(`/vocabulary/categories/${id}`).then(r => r.data),
+    memoize(`vocab:cat:${id}`, () =>
+      api.get<VocabCategoryDetail>(`/vocabulary/categories/${id}`).then(r => r.data)),
 };
 
 export const conversationsApi = {
-  list: () => api.get<ConversationSummary[]>('/conversations').then(r => r.data),
+  list: () =>
+    memoize('conversations:list', () =>
+      api.get<ConversationSummary[]>('/conversations').then(r => r.data)),
   get: (id: string) =>
-    api.get<ConversationDetail>(`/conversations/${id}`).then(r => r.data),
+    memoize(`conversations:${id}`, () =>
+      api.get<ConversationDetail>(`/conversations/${id}`).then(r => r.data)),
 };
 
 export const flashcardsApi = {
-  decks: () => api.get<FlashcardDeck[]>('/flashcards').then(r => r.data),
+  decks: () =>
+    memoize('flashcards:decks', () => api.get<FlashcardDeck[]>('/flashcards').then(r => r.data)),
 };
 
 export const grammarApi = {
-  index: () => api.get<GrammarIndex>('/grammar').then(r => r.data),
+  index: () => memoize('grammar:index', () => api.get<GrammarIndex>('/grammar').then(r => r.data)),
   chapter: (slug: string) =>
-    api.get<GrammarChapter>(`/grammar/${slug}`).then(r => r.data),
+    memoize(`grammar:chapter:${slug}`, () =>
+      api.get<GrammarChapter>(`/grammar/${slug}`).then(r => r.data)),
 };
