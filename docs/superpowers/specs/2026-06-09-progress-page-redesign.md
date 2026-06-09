@@ -2,13 +2,13 @@
 
 **Date:** 2026-06-09
 **Reference design:** `frontend/design/stitch_interactive_conversation_and_idioms/code.html`
-**Scope:** Mobile `Progress.tsx` only — `ProgressDesktop.tsx` is unchanged.
+**Scope:** Mobile `Progress.tsx` + `ProgressDesktop.tsx` both updated.
 
 ---
 
 ## Goal
 
-Rewrite the mobile Progress page to match the visual language and layout of the reference design (`code.html`), while keeping all existing data sources (API + localStorage) wired up correctly.
+Rewrite both the mobile (`Progress.tsx`) and desktop (`ProgressDesktop.tsx`) Progress pages to match the visual language and layout of the reference design (`code.html`), while keeping all existing data sources (API + localStorage) wired up correctly.
 
 ---
 
@@ -37,9 +37,15 @@ Structure (top to bottom):
 
 **Icons:** Material Symbols Outlined (existing icon system in the app).
 
+**Pie chart cards** — two additional cards in the Learning section (below the Quick Stats bento):
+- **Vocabulary distribution:** `wordsLearned` (read) vs `VocabIndex.total_words - wordsLearned` (remaining), rendered as an SVG donut chart
+- **Idioms distribution:** `learnedIdioms.length` (read) vs `IdiomsLibrary.total_idioms - learnedIdioms.length` (remaining), rendered as an SVG donut chart
+- Both animate their fill arc from 0 → final value on first mount (CSS `stroke-dashoffset` transition)
+- Labels inside the donut: percentage read (e.g. "32%"), label below: "X / Y"
+
 The existing `var(--paper)`, `var(--ink)` CSS variables are **not used** in this page — replaced entirely with the new Tailwind tokens.
 
-The `if (isDesktop) return <ProgressDesktop ... />` branch at the top of `Progress.tsx` is kept unchanged.
+The `if (isDesktop) return <ProgressDesktop ... />` branch at the top of `Progress.tsx` is kept unchanged — desktop falls through to `ProgressDesktop.tsx` which is also updated to match the same design.
 
 ---
 
@@ -54,6 +60,8 @@ The `if (isDesktop) return <ProgressDesktop ... />` branch at the top of `Progre
 | Average Score | `stats.avg_score` from API | `"X/100"` with progress bar at `avg_score%` |
 
 API data from existing `progressApi.get()`. Loading state gates the whole page.
+
+**Streak logic:** Driven by the `/daily-challenge` API (`progressApi.dailyChallenge()`). The streak increments only when the user completes today's daily challenge scenario. If the user completes the challenge one day but not the next, the streak resets to 0. Today's count is 0 until the daily challenge is completed. The daily challenge refreshes automatically at midnight (server-side, via the existing `/daily-challenge` endpoint which returns a date-keyed challenge). The Progress page displays `stats.current_streak` from the API — no client-side streak calculation needed.
 
 ### "Saved for Review" bookmarks
 
@@ -90,7 +98,10 @@ API data from existing `progressApi.get()`. Loading state gates the whole page.
 
 ## Component Structure
 
-**File changes:** Only `frontend/src/pages/Progress.tsx` is rewritten. One additional change to `frontend/index.html` for fonts if needed.
+**File changes:**
+- `frontend/src/pages/Progress.tsx` — full rewrite (mobile render)
+- `frontend/src/pages/ProgressDesktop.tsx` — updated to match the same design system
+- `frontend/index.html` — Google Fonts link added if not already present
 
 **Inline sub-components inside `Progress.tsx`:**
 
@@ -112,6 +123,16 @@ Props:
 
 Renders the white card with icon, type label, difficulty badge, title, category, and a filled bookmark icon button that calls `onRemove`.
 
+### `DonutChart`
+Inline sub-component for pie chart cards.
+
+Props:
+```ts
+{ read: number; total: number; color: string; label: string; }
+```
+
+Renders an SVG donut (viewBox 112×112, r=48, strokeWidth=9). On mount, animates `stroke-dashoffset` from full circumference → final value via CSS transition (300ms ease-out). Center text shows percentage. Below the donut: `"X / Y read"` label.
+
 ### Bar chart
 Rendered inline — no sub-component. A `div.flex` row of proportionally-sized bars with day labels below.
 
@@ -130,7 +151,7 @@ Rendered inline — no sub-component. A `div.flex` row of proportionally-sized b
 
 ## Out of Scope
 
-- `ProgressDesktop.tsx` — not changed
 - Deep-linking to an individual idiom from a bookmark card (Idioms page doesn't support it yet)
 - Week vs Month toggle with real data (API doesn't expose it)
 - User avatar (placeholder only, no auth yet)
+- Backend changes to streak tracking (Progress page reads `current_streak` from API as-is)
