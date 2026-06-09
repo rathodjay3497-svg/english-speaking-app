@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import DesktopLayout from '../components/DesktopLayout';
+import ConfirmDialog from '../components/ConfirmDialog';
 import type { Progress } from '../types';
 
 interface ResolvedBookmark {
@@ -127,6 +128,7 @@ export default function ProgressDesktop({
   bookmarks, onRemoveIdiomBookmark, onRemoveConvoBookmark, onClearAllBookmarks,
 }: ProgressDesktopProps) {
   const navigate = useNavigate();
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   const dayLabel = (iso: string) => new Date(iso).toLocaleDateString('en-US', { weekday: 'short' });
   const sessions = stats.recent_sessions.slice(0, 7);
@@ -187,7 +189,7 @@ export default function ProgressDesktop({
             <div className="flex justify-between items-center">
               <h3 className="font-serif text-base font-semibold text-on-surface">Saved for Review</h3>
               {bookmarks.length > 0 && (
-                <button onClick={onClearAllBookmarks} className="text-primary text-sm font-semibold hover:underline">
+                <button onClick={() => setShowClearConfirm(true)} className="text-primary text-sm font-semibold hover:underline">
                   Clear all
                 </button>
               )}
@@ -258,6 +260,16 @@ export default function ProgressDesktop({
 
         </div>
       </div>
+      <ConfirmDialog
+        visible={showClearConfirm}
+        title="Remove all bookmarks?"
+        message={`This will remove all ${bookmarks.length} saved items from your review list.`}
+        onConfirm={() => {
+          onClearAllBookmarks();
+          setShowClearConfirm(false);
+        }}
+        onCancel={() => setShowClearConfirm(false)}
+      />
     </DesktopLayout>
   );
 }

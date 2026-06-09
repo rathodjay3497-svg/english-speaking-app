@@ -34,7 +34,11 @@
       "Bash(cat \"\\\\tmp\\\\brainstorm\\\\state\\\\events\" 2>/dev/null || echo \"no events file\")",
       "Read(//d/tmp/brainstorm/state/**)",
       "Bash(git add *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(dir /s /b *.tsx *.ts *.jsx *.js)",
+      "Bash(findstr /i \"word\\\\|idiom\\\\|vocabulary\\\\|vocab\")",
+      "PowerShell(node \"C:\\\\Users\\\\ROG\\\\.claude\\\\plugins\\\\cache\\\\superpowers-marketplace\\\\superpowers\\\\5.1.0\\\\skills\\\\brainstorming\\\\scripts\\\\server.cjs\" --project-dir \"d:\\\\Jay Rathod\\\\Projects\\\\english-speaking-app\" --port 64433 2>&1)",
+      "Bash(Start-Process \"C:\\\\Users\\\\ROG\\\\AppData\\\\Local\\\\Temp\\\\brainstorm\\\\content\\\\vocab-infinite-scroll.html\")"
     ]
   }
 }

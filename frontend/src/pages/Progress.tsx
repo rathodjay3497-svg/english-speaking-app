@@ -1,13 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import BottomNav from '../components/BottomNav';
 import ScrollToTop from '../components/ScrollToTop';
 import { useAutoHide } from '../hooks/useAutoHide';
 import { useIsDesktop } from '../hooks/useIsDesktop';
 import { useLocalProgress } from '../hooks/useLocalProgress';
+import { usePersistentState } from '../hooks/usePersistentState';
 import { idiomsApi, progressApi, scenariosApi, conversationsApi, vocabularyApi } from '../services/api';
-import type { Progress, Idiom, ConversationSummary, Scenario, VocabIndex } from '../types';
+import type { Progress, Idiom, ConversationSummary, Scenario, VocabIndex, VocabCategoryDetail, VocabWord } from '../types';
+import WordRow from '../components/WordRow';
 import ProgressDesktop from './ProgressDesktop';
+import ConfirmDialog from '../components/ConfirmDialog';
+import SavedIdiomRow from '../components/SavedIdiomRow';
 
 // ── Sub-components ──────────────────────────────────────────────────────────
 
@@ -38,54 +42,6 @@ function StatCard({ label, value, unit, icon, bar, barColor }: {
   );
 }
 
-function BookmarkCard({ type, title, category, difficulty, onRemove, onTap }: {
-  type: 'idiom' | 'conversation';
-  title: string;
-  category: string;
-  difficulty: string;
-  onRemove: () => void;
-  onTap: () => void;
-}) {
-  const isIdiom = type === 'idiom';
-  const diffColor = difficulty.toLowerCase() === 'advanced'
-    ? 'bg-secondary/10 text-secondary'
-    : difficulty.toLowerCase() === 'intermediate'
-    ? 'bg-tertiary-container/10 text-tertiary'
-    : 'bg-primary/10 text-primary';
-
-  return (
-    <div
-      className="bg-white rounded-xl p-4 flex gap-4 items-center border border-outline-variant/10 hover:shadow-md transition-shadow cursor-pointer"
-      onClick={onTap}
-    >
-      <div className={`w-12 h-12 rounded-full flex items-center justify-center ${isIdiom ? 'bg-secondary-container/20' : 'bg-primary-container/20'}`}>
-        <span className={`material-symbols-outlined ${isIdiom ? 'text-secondary' : 'text-primary'}`}>
-          {isIdiom ? 'auto_stories' : 'chat_bubble'}
-        </span>
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex justify-between items-start">
-          <span className={`text-[10px] font-bold uppercase tracking-wider ${isIdiom ? 'text-secondary' : 'text-primary'}`}>
-            {isIdiom ? 'Idiom' : 'Conversation'}
-          </span>
-          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${diffColor}`}>
-            {difficulty.slice(0, 3).toUpperCase()}
-          </span>
-        </div>
-        <h4 className="text-sm font-semibold text-on-surface truncate mt-0.5">{title}</h4>
-        <p className="text-xs text-on-surface-variant">{category}</p>
-      </div>
-      <button
-        className="material-symbols-outlined text-on-surface-variant hover:text-error transition-colors p-1 shrink-0"
-        style={{ fontVariationSettings: "'FILL' 1" }}
-        onClick={e => { e.stopPropagation(); onRemove(); }}
-        aria-label="Remove bookmark"
-      >
-        bookmark
-      </button>
-    </div>
-  );
-}
 
 function DonutChart({ read, total, color, label }: {
   read: number;
@@ -123,6 +79,8 @@ function DonutChart({ read, total, color, label }: {
   );
 }
 
+const DIFFICULTY_ORDER: Record<string, number> = { beginner: 0, intermediate: 1, advanced: 2 };
+
 // ── Resolved bookmark shape ──────────────────────────────────────────────────
 
 interface ResolvedBookmark {
@@ -131,6 +89,8 @@ interface ResolvedBookmark {
   title: string;
   category: string;
   difficulty: string;
+  englishMeaning?: string;
+  example?: string;
 }
 
 // ── Main page ────────────────────────────────────────────────────────────────
@@ -141,8 +101,15 @@ export default function ProgressPage() {
   const [vocabIndex, setVocabIndex] = useState<VocabIndex | null>(null);
   const [totalIdioms, setTotalIdioms] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [categoryDetails, setCategoryDetails] = useState<VocabCategoryDetail[]>([]);
+  const [savedTab, setSavedTab] = usePersistentState<'vocabulary' | 'idioms'>(
+    'bolo_ui_progress_saved_tab', 'vocabulary'
+  );
+  const [openIdiomKey, setOpenIdiomKey] = useState<string | null>(null);
+  const [openWordKey, setOpenWordKey] = useState<string | null>(null);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
   const navigate = useNavigate();
-  const { progress: local, toggleIdiomBookmark, toggleConvoBookmark, setStreak } = useLocalProgress();
+  const { progress: local, toggleIdiomBookmark, toggleConvoBookmark, setStreak, setWord } = useLocalProgress();
   const scrollRef = useRef<HTMLDivElement>(null);
   const { visible: uiVisible } = useAutoHide(scrollRef);
 
@@ -150,10 +117,33 @@ export default function ProgressPage() {
   const idiomsLearned = local.learnedIdioms?.length ?? 0;
   const isDesktop = useIsDesktop();
 
-  const clearAllBookmarks = useCallback(() => {
-    [...local.idiomBookmarks].forEach(id => toggleIdiomBookmark(id));
-    [...local.convoBookmarks].forEach(key => toggleConvoBookmark(key));
-  }, [local.idiomBookmarks, local.convoBookmarks, toggleIdiomBookmark, toggleConvoBookmark]);
+  const catNameToId = useMemo<Record<string, number>>(() =>
+    Object.fromEntries(
+      (vocabIndex?.category_summary ?? []).map(s => [s.category, s.id])
+    ),
+    [vocabIndex]
+  );
+
+  const allWords = useMemo<VocabWord[]>(() =>
+    categoryDetails
+      .flatMap(cat => cat.words)
+      .sort((a, b) => {
+        const da = DIFFICULTY_ORDER[a.difficulty?.toLowerCase() ?? ''] ?? 1;
+        const db = DIFFICULTY_ORDER[b.difficulty?.toLowerCase() ?? ''] ?? 1;
+        return da !== db ? da - db : a.word.localeCompare(b.word);
+      }),
+    [categoryDetails]
+  );
+
+  const savedWords = useMemo(() =>
+    allWords.filter(w => {
+      const catId = catNameToId[w.category];
+      const key = catId != null ? `${catId}-${w.id}` : `${w.category}-${w.id}`;
+      return local.vocab[key]?.bookmarked;
+    }),
+    [allWords, local.vocab, catNameToId]
+  );
+
 
   useEffect(() => {
     const hasBookmarks = local.idiomBookmarks.length > 0 || local.convoBookmarks.length > 0;
@@ -165,11 +155,19 @@ export default function ProgressPage() {
       hasBookmarks ? conversationsApi.list().catch(() => null) : Promise.resolve(null),
       vocabularyApi.index().catch(() => null),
       idiomsApi.list().catch(() => null),
-    ]).then(([prog, idiomsLib, scenarios, convos, vocabIdx, idiomsLib2]) => {
+    ]).then(async ([prog, idiomsLib, scenarios, convos, vocabIdx, idiomsLib2]) => {
       if (prog?.current_streak != null) setStreak(prog.current_streak);
       setProgress(prog);
       setVocabIndex(vocabIdx);
       setTotalIdioms(idiomsLib2?.total_idioms ?? idiomsLib?.total_idioms ?? 0);
+
+      // Fetch all category words (memoized — free if Vocabulary page was visited)
+      if (vocabIdx?.category_summary) {
+        const details = await Promise.all(
+          vocabIdx.category_summary.map(s => vocabularyApi.category(s.id).catch(() => null))
+        );
+        setCategoryDetails(details.filter((d): d is VocabCategoryDetail => d !== null));
+      }
 
       const resolved: ResolvedBookmark[] = [];
 
@@ -183,6 +181,8 @@ export default function ProgressPage() {
             title: idiom?.idiom ?? '—',
             category: idiom?.category ?? '—',
             difficulty: idiom?.difficulty ?? 'Beginner',
+            englishMeaning: idiom?.english_meaning,
+            example: idiom?.examples?.[0],
           });
         }
       }
@@ -242,7 +242,10 @@ export default function ProgressPage() {
         bookmarks={bookmarks}
         onRemoveIdiomBookmark={toggleIdiomBookmark}
         onRemoveConvoBookmark={toggleConvoBookmark}
-        onClearAllBookmarks={clearAllBookmarks}
+        onClearAllBookmarks={() => {
+          [...local.idiomBookmarks].forEach(id => toggleIdiomBookmark(id));
+          [...local.convoBookmarks].forEach(key => toggleConvoBookmark(key));
+        }}
       />
     );
   }
@@ -338,38 +341,93 @@ export default function ProgressPage() {
           <section className="space-y-3">
             <div className="flex justify-between items-center">
               <h3 className="font-serif text-lg font-semibold text-on-surface">Saved for Review</h3>
-              {bookmarks.length > 0 && (
+              {((savedTab === 'vocabulary' && savedWords.length > 0) ||
+                (savedTab === 'idioms' && bookmarks.filter(b => b.type === 'idiom').length > 0)) && (
                 <button
-                  onClick={clearAllBookmarks}
-                  className="text-primary text-sm font-semibold hover:underline"
+                  onClick={() => setShowClearConfirm(true)}
+                  className="text-sm font-semibold"
+                  style={{ color: '#e74c3c' }}
                 >
                   Clear all
                 </button>
               )}
             </div>
-            {bookmarks.length === 0 ? (
-              <p className="text-sm text-on-surface-variant py-4 text-center">No saved items yet.</p>
-            ) : (
+
+            {/* Tabs */}
+            <div className="flex gap-2">
+              {(['vocabulary', 'idioms'] as const).map(tab => {
+                const count = tab === 'vocabulary'
+                  ? savedWords.length
+                  : bookmarks.filter(b => b.type === 'idiom').length;
+                return (
+                  <button
+                    key={tab}
+                    onClick={() => setSavedTab(tab)}
+                    className="px-4 py-1.5 rounded-full text-xs font-semibold border transition-colors"
+                    style={
+                      savedTab === tab
+                        ? { background: '#2d6a4f', color: 'white', borderColor: '#2d6a4f' }
+                        : { background: 'white', color: '#999', borderColor: '#e8e8e8' }
+                    }
+                  >
+                    {tab === 'vocabulary' ? `Vocabulary (${count})` : `Idioms (${count})`}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Vocabulary saved tab */}
+            {savedTab === 'vocabulary' && (
+              <div className="space-y-2">
+                {savedWords.length === 0 ? (
+                  <p className="text-sm text-on-surface-variant py-4 text-center">No saved words yet.</p>
+                ) : (
+                  savedWords.map(w => {
+                    const catId = catNameToId[w.category];
+                    const wKey = catId != null ? `${catId}-${w.id}` : `${w.category}-${w.id}`;
+                    return (
+                      <WordRow
+                        key={wKey}
+                        word={w}
+                        progress={local.vocab[wKey] ?? {}}
+                        onBookmark={() => setWord(wKey, { bookmarked: !local.vocab[wKey]?.bookmarked })}
+                        onLearned={() => setWord(wKey, { learned: !local.vocab[wKey]?.learned })}
+                        isOpen={openWordKey === wKey}
+                        onToggle={() => setOpenWordKey(prev => prev === wKey ? null : wKey)}
+                      />
+                    );
+                  })
+                )}
+              </div>
+            )}
+
+            {/* Idioms saved tab */}
+            {savedTab === 'idioms' && (
               <div className="flex flex-col gap-3">
-                {bookmarks.map(bm => (
-                  <BookmarkCard
-                    key={bm.key}
-                    type={bm.type}
-                    title={bm.title}
-                    category={bm.category}
-                    difficulty={bm.difficulty}
-                    onTap={() => navigate(bm.type === 'idiom' ? '/idioms' : '/conversations')}
-                    onRemove={() => {
-                      if (bm.type === 'idiom') {
-                        const id = parseInt(bm.key.replace('idiom-', ''), 10);
-                        toggleIdiomBookmark(id);
-                      } else {
-                        toggleConvoBookmark(bm.key);
-                      }
-                      setBookmarks(prev => prev.filter(b => b.key !== bm.key));
-                    }}
-                  />
-                ))}
+                {bookmarks.filter(b => b.type === 'idiom').length === 0 ? (
+                  <p className="text-sm text-on-surface-variant py-4 text-center">No saved idioms yet.</p>
+                ) : (
+                  bookmarks
+                    .filter(bm => bm.type === 'idiom')
+                    .map(bm => (
+                      <SavedIdiomRow
+                        key={bm.key}
+                        id={parseInt(bm.key.replace('idiom-', ''), 10)}
+                        title={bm.title}
+                        category={bm.category}
+                        difficulty={bm.difficulty}
+                        englishMeaning={bm.englishMeaning}
+                        example={bm.example}
+                        isOpen={openIdiomKey === bm.key}
+                        onToggle={() => setOpenIdiomKey(prev => prev === bm.key ? null : bm.key)}
+                        onRemove={() => {
+                          const id = parseInt(bm.key.replace('idiom-', ''), 10);
+                          toggleIdiomBookmark(id);
+                          setBookmarks(prev => prev.filter(b => b.key !== bm.key));
+                        }}
+                      />
+                    ))
+                )}
               </div>
             )}
           </section>
@@ -412,6 +470,29 @@ export default function ProgressPage() {
 
       {!loading && <ScrollToTop targetRef={scrollRef} />}
       <BottomNav active="progress" visible={uiVisible} />
+      <ConfirmDialog
+        visible={showClearConfirm}
+        title={savedTab === 'vocabulary' ? 'Remove all words?' : 'Remove all idioms?'}
+        message={
+          savedTab === 'vocabulary'
+            ? `This will remove all ${savedWords.length} saved words from your review list.`
+            : `This will remove all ${bookmarks.filter(b => b.type === 'idiom').length} saved idioms from your review list.`
+        }
+        onConfirm={() => {
+          if (savedTab === 'vocabulary') {
+            savedWords.forEach(w => {
+              const catId = catNameToId[w.category];
+              const wKey = catId != null ? `${catId}-${w.id}` : `${w.category}-${w.id}`;
+              setWord(wKey, { bookmarked: false });
+            });
+          } else {
+            [...local.idiomBookmarks].forEach(id => toggleIdiomBookmark(id));
+            setBookmarks(prev => prev.filter(b => b.type !== 'idiom'));
+          }
+          setShowClearConfirm(false);
+        }}
+        onCancel={() => setShowClearConfirm(false)}
+      />
     </div>
   );
 }

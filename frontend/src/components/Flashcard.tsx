@@ -3,6 +3,16 @@ import type { VocabWord } from '../types';
 import { BookmarkIcon, CheckIcon, FlipIcon } from './Icon';
 import PronounceButton from './PronounceButton';
 
+const POS_ICON: Record<string, { emoji: string; bg: string }> = {
+  'verb':         { emoji: '⚡', bg: '#DBEAFE' },
+  'noun':         { emoji: '📦', bg: '#D1FAE5' },
+  'adjective':    { emoji: '🎨', bg: '#EDE9FE' },
+  'phrase':       { emoji: '💬', bg: '#FEF3C7' },
+  'phrasal verb': { emoji: '🔀', bg: '#FCE7F3' },
+  'adverb':       { emoji: '🌀', bg: '#ECFDF5' },
+};
+const POS_FALLBACK = { emoji: '📝', bg: 'var(--paper-2)' };
+
 interface Props {
   word: VocabWord;
   learned?: boolean;
@@ -63,6 +73,20 @@ export default function Flashcard({ word, learned, spoken, bookmarked, onToggleL
 
       {/* Front: word */}
       <button type="button" onClick={() => setFlipped(f => !f)} className="text-left w-full">
+        {(() => {
+          const posKey = word.part_of_speech?.toLowerCase() ?? '';
+          const icon = POS_ICON[posKey] ?? POS_FALLBACK;
+          return (
+            <div className="flex items-center gap-2 mb-1.5">
+              <div
+                className="w-7 h-7 rounded-[7px] grid place-items-center text-sm flex-shrink-0"
+                style={{ background: icon.bg }}
+              >
+                {icon.emoji}
+              </div>
+            </div>
+          );
+        })()}
         <h4 className="font-serif text-xl font-semibold leading-tight" style={{ color: 'var(--ink)' }}>
           {word.word}
         </h4>

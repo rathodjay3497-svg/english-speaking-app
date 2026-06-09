@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import DesktopLayout from '../components/DesktopLayout';
 import Flashcard from '../components/Flashcard';
@@ -17,6 +17,8 @@ interface VocabularyDesktopProps {
   learnedIn: (categoryId: number) => number;
 }
 
+const PAGE_SIZE = 20;
+
 const getCategoryIcon = (name: string) => {
   const n = name.toLowerCase();
   if (n.includes('place') || n.includes('location') || n.includes('city')) return 'location_city';
@@ -27,7 +29,6 @@ const getCategoryIcon = (name: string) => {
 };
 
 const getCategoryColors = (idx: number) => {
-  // Rotate colors between secondary-fixed, tertiary-fixed, primary-fixed
   const options = [
     { bg: 'bg-secondary-fixed', icon: 'text-on-secondary-fixed' },
     { bg: 'bg-tertiary-fixed', icon: 'text-on-tertiary-fixed-variant' },
@@ -50,8 +51,17 @@ export default function VocabularyDesktop({
 }: VocabularyDesktopProps) {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
+  const [unreadCount, setUnreadCount] = useState(PAGE_SIZE);
+  const [savedCount, setSavedCount] = useState(PAGE_SIZE);
+  const unreadSentinelRef = useRef<HTMLDivElement>(null);
+  const savedSentinelRef = useRef<HTMLDivElement>(null);
 
-  // Handle local searching/filtering of words
+  // Reset counts when search changes or tab switches
+  useEffect(() => {
+    setUnreadCount(PAGE_SIZE);
+    setSavedCount(PAGE_SIZE);
+  }, [searchQuery, tab]);
+
   const filteredUnread = useMemo(() => {
     if (!searchQuery) return unreadWords;
     return unreadWords.filter(
@@ -69,6 +79,33 @@ export default function VocabularyDesktop({
         w.english_meaning.toLowerCase().includes(searchQuery.toLowerCase())
     );
   }, [savedWords, searchQuery]);
+
+  const displayedUnread = filteredUnread.slice(0, unreadCount);
+  const displayedSaved = filteredSaved.slice(0, savedCount);
+  const hasMoreUnread = unreadCount < filteredUnread.length;
+  const hasMoreSaved = savedCount < filteredSaved.length;
+
+  useEffect(() => {
+    if (!unreadSentinelRef.current || !hasMoreUnread) return;
+    const el = unreadSentinelRef.current;
+    const observer = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) setUnreadCount(c => c + PAGE_SIZE); },
+      { threshold: 0.1 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasMoreUnread, displayedUnread.length]);
+
+  useEffect(() => {
+    if (!savedSentinelRef.current || !hasMoreSaved) return;
+    const el = savedSentinelRef.current;
+    const observer = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) setSavedCount(c => c + PAGE_SIZE); },
+      { threshold: 0.1 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasMoreSaved, displayedSaved.length]);
 
   if (loading) {
     return (
@@ -103,7 +140,7 @@ export default function VocabularyDesktop({
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
               </div>
-              <button 
+              <button
                 onClick={() => navigate('/flashcards')}
                 className="bg-primary text-on-primary px-6 py-2 rounded-full font-label-sm text-label-sm hover:opacity-90 transition-opacity flex items-center gap-2 cursor-pointer font-bold"
               >
@@ -154,9 +191,8 @@ export default function VocabularyDesktop({
             {index?.category_summary.map((c, i) => {
               const learned = learnedIn(c.id);
               const pct = c.total_words ? Math.round((learned / c.total_words) * 100) : 0;
-              
+
               if (i === 0) {
-                // Featured Module (spans 8 cols)
                 return (
                   <div
                     key={c.id}
@@ -206,7 +242,6 @@ export default function VocabularyDesktop({
                 );
               }
 
-              // Places, Emotions, Work Cards (spans 4 cols)
               const colors = getCategoryColors(i);
               const icon = getCategoryIcon(c.category);
               return (
@@ -239,7 +274,7 @@ export default function VocabularyDesktop({
               );
             })}
 
-            {/* Quick Review CTA (Spans 4 cols) */}
+            {/* Quick Review CTA */}
             <div
               onClick={() => navigate('/flashcards')}
               className="md:col-span-4 bg-primary text-on-primary rounded-xl p-stack-md flex flex-col justify-center items-center text-center relative overflow-hidden group hover:opacity-95 transition-all cursor-pointer shadow-sm min-h-[220px]"
@@ -255,32 +290,48 @@ export default function VocabularyDesktop({
         ) : tab === 'unread' ? (
           <div className="space-y-4">
             {filteredUnread.length > 0 ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-gutter">
-                {filteredUnread.map((w) => {
-                  const catId = catNameToId[w.category];
-                  const wordKey = `${catId}-${w.id}`;
-                  const wp = progress.vocab[wordKey] ?? {};
-                  return (
-                    <Flashcard
-                      key={wordKey}
-                      word={w}
-                      learned={wp.learned}
-                      spoken={wp.spoken}
-                      bookmarked={wp.bookmarked}
-                      onToggleLearned={() => setWord(wordKey, { learned: !wp.learned })}
-                      onSpoken={() => setWord(wordKey, { spoken: true })}
-                      onToggleBookmark={() => setWord(wordKey, { bookmarked: !wp.bookmarked })}
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-gutter">
+                  {displayedUnread.map((w) => {
+                    const catId = catNameToId[w.category];
+                    const wordKey = `${catId}-${w.id}`;
+                    const wp = progress.vocab[wordKey] ?? {};
+                    return (
+                      <Flashcard
+                        key={wordKey}
+                        word={w}
+                        learned={wp.learned}
+                        spoken={wp.spoken}
+                        bookmarked={wp.bookmarked}
+                        onToggleLearned={() => setWord(wordKey, { learned: !wp.learned })}
+                        onSpoken={() => setWord(wordKey, { spoken: true })}
+                        onToggleBookmark={() => setWord(wordKey, { bookmarked: !wp.bookmarked })}
+                      />
+                    );
+                  })}
+                </div>
+                {hasMoreUnread && (
+                  <div ref={unreadSentinelRef} className="flex items-center justify-center gap-2 py-4 text-sm text-on-surface-variant">
+                    <div
+                      className="w-4 h-4 rounded-full border-2 animate-spin"
+                      style={{ borderColor: 'rgba(0,0,0,0.1)', borderTopColor: 'currentColor' }}
                     />
-                  );
-                })}
-              </div>
+                    Loading more…
+                  </div>
+                )}
+                {!hasMoreUnread && filteredUnread.length > PAGE_SIZE && (
+                  <p className="text-center text-sm py-3 text-on-surface-variant">
+                    🎉 All {filteredUnread.length} unread words loaded
+                  </p>
+                )}
+              </>
             ) : (
               <div className="text-center py-16 px-4 bg-surface-container rounded-xl border border-outline-variant/10 max-w-md mx-auto">
                 <div className="text-4xl mb-3">🎉</div>
                 <p className="text-sm font-semibold text-on-background font-bold">All words completed!</p>
                 <p className="text-xs mt-1 text-on-surface-variant max-w-[280px] mx-auto leading-relaxed">
-                  {searchQuery 
-                    ? "No words match your search filter." 
+                  {searchQuery
+                    ? "No words match your search filter."
                     : "Great job! You have marked all words in the library as learned."
                   }
                 </p>
@@ -290,32 +341,48 @@ export default function VocabularyDesktop({
         ) : (
           <div className="space-y-4">
             {filteredSaved.length > 0 ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-gutter">
-                {filteredSaved.map((w) => {
-                  const catId = catNameToId[w.category];
-                  const wordKey = `${catId}-${w.id}`;
-                  const wp = progress.vocab[wordKey] ?? {};
-                  return (
-                    <Flashcard
-                      key={wordKey}
-                      word={w}
-                      learned={wp.learned}
-                      spoken={wp.spoken}
-                      bookmarked={wp.bookmarked}
-                      onToggleLearned={() => setWord(wordKey, { learned: !wp.learned })}
-                      onSpoken={() => setWord(wordKey, { spoken: true })}
-                      onToggleBookmark={() => setWord(wordKey, { bookmarked: !wp.bookmarked })}
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-gutter">
+                  {displayedSaved.map((w) => {
+                    const catId = catNameToId[w.category];
+                    const wordKey = `${catId}-${w.id}`;
+                    const wp = progress.vocab[wordKey] ?? {};
+                    return (
+                      <Flashcard
+                        key={wordKey}
+                        word={w}
+                        learned={wp.learned}
+                        spoken={wp.spoken}
+                        bookmarked={wp.bookmarked}
+                        onToggleLearned={() => setWord(wordKey, { learned: !wp.learned })}
+                        onSpoken={() => setWord(wordKey, { spoken: true })}
+                        onToggleBookmark={() => setWord(wordKey, { bookmarked: !wp.bookmarked })}
+                      />
+                    );
+                  })}
+                </div>
+                {hasMoreSaved && (
+                  <div ref={savedSentinelRef} className="flex items-center justify-center gap-2 py-4 text-sm text-on-surface-variant">
+                    <div
+                      className="w-4 h-4 rounded-full border-2 animate-spin"
+                      style={{ borderColor: 'rgba(0,0,0,0.1)', borderTopColor: 'currentColor' }}
                     />
-                  );
-                })}
-              </div>
+                    Loading more…
+                  </div>
+                )}
+                {!hasMoreSaved && filteredSaved.length > PAGE_SIZE && (
+                  <p className="text-center text-sm py-3 text-on-surface-variant">
+                    🔖 All {filteredSaved.length} saved words loaded
+                  </p>
+                )}
+              </>
             ) : (
               <div className="text-center py-16 px-4 bg-surface-container rounded-xl border border-outline-variant/10 max-w-md mx-auto">
                 <div className="text-4xl mb-3">🔖</div>
                 <p className="text-sm font-semibold text-on-background font-bold">No saved words</p>
                 <p className="text-xs mt-1 text-on-surface-variant max-w-[280px] mx-auto leading-relaxed">
-                  {searchQuery 
-                    ? "No saved words match your search filter." 
+                  {searchQuery
+                    ? "No saved words match your search filter."
                     : "Tap the bookmark icon on any flashcard inside a category to save it here for quick practice."
                   }
                 </p>

@@ -13,6 +13,7 @@ import { useIsDesktop } from '../hooks/useIsDesktop';
 import VocabularyDesktop from './VocabularyDesktop';
 
 const ICONS = ['🗣️', '🏙️', '🧺', '🍽️'];
+const PAGE_SIZE = 20;
 
 export default function Vocabulary() {
   const [index, setIndex] = useState<VocabIndex | null>(null);
@@ -23,6 +24,11 @@ export default function Vocabulary() {
   const navigate = useNavigate();
   const scrollRef = useRef<HTMLDivElement>(null);
   const { visible: uiVisible } = useAutoHide(scrollRef);
+
+  const [unreadCount, setUnreadCount] = useState(PAGE_SIZE);
+  const [savedCount, setSavedCount] = useState(PAGE_SIZE);
+  const unreadSentinelRef = useRef<HTMLDivElement>(null);
+  const savedSentinelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let active = true;
@@ -77,11 +83,46 @@ export default function Vocabulary() {
     });
   }, [allWords, catNameToId, progress.vocab]);
 
+  const displayedUnread = unreadWords.slice(0, unreadCount);
+  const displayedSaved = savedWords.slice(0, savedCount);
+  const hasMoreUnread = unreadCount < unreadWords.length;
+  const hasMoreSaved = savedCount < savedWords.length;
+
+  // IntersectionObserver for Unread tab infinite scroll
+  useEffect(() => {
+    if (!unreadSentinelRef.current || !hasMoreUnread) return;
+    const el = unreadSentinelRef.current;
+    const observer = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) setUnreadCount(c => c + PAGE_SIZE); },
+      { threshold: 0.1 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasMoreUnread, displayedUnread.length]);
+
+  // IntersectionObserver for Saved tab infinite scroll
+  useEffect(() => {
+    if (!savedSentinelRef.current || !hasMoreSaved) return;
+    const el = savedSentinelRef.current;
+    const observer = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) setSavedCount(c => c + PAGE_SIZE); },
+      { threshold: 0.1 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasMoreSaved, displayedSaved.length]);
+
   /** Words learned within a category = progress keys prefixed `${categoryId}-`. */
   const learnedIn = (categoryId: number) =>
     Object.entries(progress.vocab).filter(
       ([key, v]) => key.startsWith(`${categoryId}-`) && v.learned
     ).length;
+
+  const handleSetTab = (t: typeof tab) => {
+    setTab(t);
+    setUnreadCount(PAGE_SIZE);
+    setSavedCount(PAGE_SIZE);
+  };
 
   const isDesktop = useIsDesktop();
 
@@ -91,7 +132,7 @@ export default function Vocabulary() {
         index={index}
         loading={loading}
         tab={tab}
-        setTab={setTab}
+        setTab={handleSetTab}
         progress={progress}
         setWord={setWord}
         catNameToId={catNameToId}
@@ -124,7 +165,7 @@ export default function Vocabulary() {
           {/* Main Tab Switcher: Categories vs Unread vs Saved */}
           <div className="flex gap-2 mb-4 p-1 rounded-xl" style={{ background: 'var(--paper-2)' }}>
             <button
-              onClick={() => setTab('categories')}
+              onClick={() => handleSetTab('categories')}
               className="flex-grow flex-shrink-0 flex-1 py-2 text-xs font-bold rounded-lg transition-all"
               style={
                 tab === 'categories'
@@ -135,7 +176,7 @@ export default function Vocabulary() {
               Categories
             </button>
             <button
-              onClick={() => setTab('unread')}
+              onClick={() => handleSetTab('unread')}
               className="flex-grow flex-shrink-0 flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1"
               style={
                 tab === 'unread'
@@ -146,7 +187,7 @@ export default function Vocabulary() {
               📖 Unread ({unreadWords.length})
             </button>
             <button
-              onClick={() => setTab('saved')}
+              onClick={() => handleSetTab('saved')}
               className="flex-grow flex-shrink-0 flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1"
               style={
                 tab === 'saved'
@@ -201,25 +242,41 @@ export default function Vocabulary() {
           ) : tab === 'unread' ? (
             <div className="space-y-4">
               {unreadWords.length > 0 ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {unreadWords.map(w => {
-                    const catId = catNameToId[w.category];
-                    const wordKey = `${catId}-${w.id}`;
-                    const wp = progress.vocab[wordKey] ?? {};
-                    return (
-                      <Flashcard
-                        key={wordKey}
-                        word={w}
-                        learned={wp.learned}
-                        spoken={wp.spoken}
-                        bookmarked={wp.bookmarked}
-                        onToggleLearned={() => setWord(wordKey, { learned: !wp.learned })}
-                        onSpoken={() => setWord(wordKey, { spoken: true })}
-                        onToggleBookmark={() => setWord(wordKey, { bookmarked: !wp.bookmarked })}
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {displayedUnread.map(w => {
+                      const catId = catNameToId[w.category];
+                      const wordKey = `${catId}-${w.id}`;
+                      const wp = progress.vocab[wordKey] ?? {};
+                      return (
+                        <Flashcard
+                          key={wordKey}
+                          word={w}
+                          learned={wp.learned}
+                          spoken={wp.spoken}
+                          bookmarked={wp.bookmarked}
+                          onToggleLearned={() => setWord(wordKey, { learned: !wp.learned })}
+                          onSpoken={() => setWord(wordKey, { spoken: true })}
+                          onToggleBookmark={() => setWord(wordKey, { bookmarked: !wp.bookmarked })}
+                        />
+                      );
+                    })}
+                  </div>
+                  {hasMoreUnread && (
+                    <div ref={unreadSentinelRef} className="flex items-center justify-center gap-2 py-4 text-xs" style={{ color: 'var(--ink-soft)' }}>
+                      <div
+                        className="w-4 h-4 rounded-full border-2 animate-spin"
+                        style={{ borderColor: 'var(--paper-2)', borderTopColor: 'var(--teal)' }}
                       />
-                    );
-                  })}
-                </div>
+                      Loading more…
+                    </div>
+                  )}
+                  {!hasMoreUnread && unreadWords.length > PAGE_SIZE && (
+                    <p className="text-center text-xs py-3" style={{ color: 'var(--ink-soft)' }}>
+                      🎉 All {unreadWords.length} unread words loaded
+                    </p>
+                  )}
+                </>
               ) : (
                 <div className="text-center py-16 px-4">
                   <div className="text-4xl mb-3">🎉</div>
@@ -235,25 +292,41 @@ export default function Vocabulary() {
           ) : (
             <div className="space-y-4">
               {savedWords.length > 0 ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {savedWords.map(w => {
-                    const catId = catNameToId[w.category];
-                    const wordKey = `${catId}-${w.id}`;
-                    const wp = progress.vocab[wordKey] ?? {};
-                    return (
-                      <Flashcard
-                        key={wordKey}
-                        word={w}
-                        learned={wp.learned}
-                        spoken={wp.spoken}
-                        bookmarked={wp.bookmarked}
-                        onToggleLearned={() => setWord(wordKey, { learned: !wp.learned })}
-                        onSpoken={() => setWord(wordKey, { spoken: true })}
-                        onToggleBookmark={() => setWord(wordKey, { bookmarked: !wp.bookmarked })}
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {displayedSaved.map(w => {
+                      const catId = catNameToId[w.category];
+                      const wordKey = `${catId}-${w.id}`;
+                      const wp = progress.vocab[wordKey] ?? {};
+                      return (
+                        <Flashcard
+                          key={wordKey}
+                          word={w}
+                          learned={wp.learned}
+                          spoken={wp.spoken}
+                          bookmarked={wp.bookmarked}
+                          onToggleLearned={() => setWord(wordKey, { learned: !wp.learned })}
+                          onSpoken={() => setWord(wordKey, { spoken: true })}
+                          onToggleBookmark={() => setWord(wordKey, { bookmarked: !wp.bookmarked })}
+                        />
+                      );
+                    })}
+                  </div>
+                  {hasMoreSaved && (
+                    <div ref={savedSentinelRef} className="flex items-center justify-center gap-2 py-4 text-xs" style={{ color: 'var(--ink-soft)' }}>
+                      <div
+                        className="w-4 h-4 rounded-full border-2 animate-spin"
+                        style={{ borderColor: 'var(--paper-2)', borderTopColor: 'var(--teal)' }}
                       />
-                    );
-                  })}
-                </div>
+                      Loading more…
+                    </div>
+                  )}
+                  {!hasMoreSaved && savedWords.length > PAGE_SIZE && (
+                    <p className="text-center text-xs py-3" style={{ color: 'var(--ink-soft)' }}>
+                      🔖 All {savedWords.length} saved words loaded
+                    </p>
+                  )}
+                </>
               ) : (
                 <div className="text-center py-16 px-4">
                   <div className="text-4xl mb-3">🔖</div>
