@@ -8,12 +8,10 @@
  * pool, so the visible set tops up from the remaining unread items.
  */
 
-/** Local calendar date as `YYYY-MM-DD` (matches `lastActiveDate` in useLocalProgress). */
+/** IST calendar date as `YYYY-MM-DD` (UTC+5:30 so daily reset fires at IST midnight). */
 export function todayKey(d: Date = new Date()): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+  const ist = new Date(d.getTime() + 5.5 * 60 * 60 * 1000);
+  return ist.toISOString().slice(0, 10);
 }
 
 /** Cheap, stable string → 32-bit int hash (djb2-ish). */

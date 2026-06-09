@@ -25,7 +25,16 @@
       "Bash(rm -rf dist)",
       "Bash(echo \"exit: $?\")",
       "Bash(python -c \"import json,sys; print\\(json.load\\(sys.stdin\\).get\\('scripts'\\)\\)\")",
-      "Read(//tmp/**)"
+      "Read(//tmp/**)",
+      "Bash(C:\\\\Users\\\\ROG\\\\.claude\\\\plugins\\\\cache\\\\superpowers-marketplace\\\\superpowers\\\\5.1.0\\\\skills\\\\brainstorming\\\\scripts\\\\start-server.sh --project-dir \"d:/Jay Rathod/Projects/english-speaking-app\")",
+      "Bash(ls \"C:/Users/ROG/.claude/plugins/cache/superpowers-marketplace/superpowers/5.1.0/skills/brainstorming/scripts/\")",
+      "Read(//c/Users/ROG/.claude/plugins/cache/superpowers-marketplace/superpowers/5.1.0/skills/brainstorming/scripts/**)",
+      "Bash(node \"C:/Users/ROG/.claude/plugins/cache/superpowers-marketplace/superpowers/5.1.0/skills/brainstorming/scripts/server.cjs\" --project-dir \"d:/Jay Rathod/Projects/english-speaking-app\")",
+      "Bash(node \"C:/Users/ROG/.claude/plugins/cache/superpowers-marketplace/superpowers/5.1.0/skills/brainstorming/scripts/server.cjs\" --project-dir \"D:\\\\\\\\Jay Rathod\\\\\\\\Projects\\\\\\\\english-speaking-app\")",
+      "Bash(cat \"\\\\tmp\\\\brainstorm\\\\state\\\\events\" 2>/dev/null || echo \"no events file\")",
+      "Read(//d/tmp/brainstorm/state/**)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
     ]
   }
 }

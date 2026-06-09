@@ -152,6 +152,14 @@ export function useLocalProgress() {
     }));
   }, []);
 
+  const setStreak = useCallback((n: number) => {
+    update(p => ({ ...p, streak: n }));
+  }, []);
+
+  const markCelebratedToday = useCallback((dateKey: string) => {
+    update(p => ({ ...p, lastActiveDate: dateKey }));
+  }, []);
+
   return {
     progress,
     setWord,
@@ -161,5 +169,7 @@ export function useLocalProgress() {
     toggleConvoBookmark,
     toggleGrammarComplete,
     setGrammarScore,
+    setStreak,
+    markCelebratedToday,
   };
 }

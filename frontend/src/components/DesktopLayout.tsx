@@ -1,14 +1,16 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useLocalProgress } from '../hooks/useLocalProgress';
 
 interface DesktopLayoutProps {
   children: React.ReactNode;
   activeTab?: 'home' | 'conversations' | 'idioms' | 'vocabulary' | 'grammar';
-  streak?: number;
 }
 
-export default function DesktopLayout({ children, activeTab, streak = 12 }: DesktopLayoutProps) {
+export default function DesktopLayout({ children, activeTab }: DesktopLayoutProps) {
   const navigate = useNavigate();
+  const { progress } = useLocalProgress();
+  const streak = progress.streak;
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
     return localStorage.getItem('desktop_sidebar_open') !== 'false';
   });
@@ -57,15 +59,9 @@ export default function DesktopLayout({ children, activeTab, streak = 12 }: Desk
           <button className="p-2 text-on-surface-variant hover:text-primary transition-colors rounded-full hover:bg-surface-container-high cursor-pointer">
             <span className="material-symbols-outlined">notifications</span>
           </button>
-          <button 
-            onClick={() => navigate('/progress')}
-            className="p-2 text-on-surface-variant hover:text-primary transition-colors rounded-full hover:bg-surface-container-high cursor-pointer"
-          >
-            <span className="material-symbols-outlined">settings</span>
-          </button>
-          <img 
-            alt="User profile avatar" 
-            className="w-8 h-8 rounded-full border border-outline-variant/30 object-cover cursor-pointer" 
+          <img
+            alt="User profile avatar"
+            className="w-8 h-8 rounded-full border border-outline-variant/30 object-cover cursor-pointer hover:ring-2 hover:ring-primary/40 transition-all active:scale-95"
             src="https://lh3.googleusercontent.com/aida-public/AB6AXuCo7KWDIzOqh3D8CeL6J-u80feukcnF61mzyzhC_J4_D5WE8rKQv-_wqFui6zpT9WsK-wV1x4h_KgwBwftH1lRLHg_s-4tJ0tEDk4HtbnfOqJl1fd4WpIrnWRVNA0v2snf0aSDJQckN1qtCmr8WYrB4BycuItW7y3x3I31WeC6I6XDmOPR_pAdrkv8gPQTmEiFwEkLDXjJf-neKpNEA2x0RDULpq1Qbh8QNO-xVlVQLnTKaaKxEwIi8ooPhVP9HuBI_ZnZ5h0kphE8"
             onClick={() => navigate('/progress')}
           />

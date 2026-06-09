@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import BottomNav from '../components/BottomNav';
 import ChapterCard from '../components/ChapterCard';
@@ -32,7 +32,6 @@ const GRAMMAR_PER_DAY = 2;
 export default function Home() {
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [challenge, setChallenge] = useState<DailyChallenge | null>(null);
-  const [streak, setStreak] = useState(0);
   const [idioms, setIdioms] = useState<Idiom[]>([]);
   const [allWords, setAllWords] = useState<VocabWord[]>([]);
   const [catNameToId, setCatNameToId] = useState<Record<string, number>>({});
@@ -42,7 +41,8 @@ export default function Home() {
   const navigate = useNavigate();
   const scrollRef = useRef<HTMLDivElement>(null);
   const { visible: uiVisible } = useAutoHide(scrollRef);
-  const { progress, toggleIdiomLearned, setWord, toggleGrammarComplete } = useLocalProgress();
+  const { progress, toggleIdiomLearned, setWord, toggleGrammarComplete, toggleIdiomBookmark, setStreak, markCelebratedToday } = useLocalProgress();
+  const [showCelebration, setShowCelebration] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -80,6 +80,7 @@ export default function Home() {
 
   const seed = useMemo(() => hashSeed(todayKey()), []);
   const learnedIdiomSet = useMemo(() => new Set(progress.learnedIdioms ?? []), [progress.learnedIdioms]);
+  const idiomBookmarkSet = useMemo(() => new Set(progress.idiomBookmarks ?? []), [progress.idiomBookmarks]);
   const grammarCompletedSet = useMemo(() => new Set(progress.grammarCompleted ?? []), [progress.grammarCompleted]);
 
   const wordKey = (w: VocabWord) => `${catNameToId[w.category]}-${w.id}`;
@@ -137,23 +138,50 @@ export default function Home() {
   const idiomsDone = todaysIdioms.filter(i => learnedIdiomSet.has(i.id)).length;
   const wordsDone = todaysWords.filter(w => !!progress.vocab[wordKey(w)]?.learned).length;
   const grammarDone = todaysGrammar.filter(c => grammarCompletedSet.has(c.slug)).length;
+
+  const today = todayKey();
+  const allDailyDone =
+    !loading &&
+    todaysIdioms.length > 0 &&
+    todaysWords.length > 0 &&
+    idiomsDone === todaysIdioms.length &&
+    wordsDone === todaysWords.length;
+
+  const dismissCelebration = useCallback(() => {
+    setShowCelebration(false);
+    markCelebratedToday(today);
+  }, [markCelebratedToday, today]);
+
+  useEffect(() => {
+    if (allDailyDone && progress.lastActiveDate !== today) {
+      setStreak(progress.streak + 1);
+      markCelebratedToday(today);
+      // small delay so the last card's "mark learned" animation settles first
+      const t = setTimeout(() => setShowCelebration(true), 400);
+      return () => clearTimeout(t);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allDailyDone]);
+
   const isDesktop = useIsDesktop();
 
   if (isDesktop) {
     return (
       <HomeDesktop
         challenge={challenge}
-        streak={streak}
         todaysIdioms={todaysIdioms}
         todaysWords={todaysWords}
         todaysGrammar={todaysGrammar}
         loading={loading}
         progress={progress}
         toggleIdiomLearned={toggleIdiomLearned}
+        toggleIdiomBookmark={toggleIdiomBookmark}
         toggleGrammarComplete={toggleGrammarComplete}
         setWord={setWord}
         wordKey={wordKey}
         challengeScenario={challengeScenario}
+        showCelebration={showCelebration}
+        onDismissCelebration={dismissCelebration}
       />
     );
   }
@@ -195,7 +223,7 @@ export default function Home() {
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold"
             style={{ background: 'var(--amber-soft)', color: 'var(--saffron-deep)' }}
           >
-            🔥 <span>{streak}</span>
+            🔥 <span>{progress.streak}</span>
           </div>
         </div>
       </header>
@@ -278,6 +306,9 @@ export default function Home() {
                       example={i.examples?.[0]}
                       read={learnedIdiomSet.has(i.id)}
                       onToggleRead={() => toggleIdiomLearned(i.id)}
+                      idiom={i}
+                      bookmarked={idiomBookmarkSet.has(i.id)}
+                      onToggleBookmark={() => toggleIdiomBookmark(i.id)}
                     />
                   ))}
                 </div>
@@ -312,6 +343,9 @@ export default function Home() {
                         example={w.examples?.[0]}
                         read={!!progress.vocab[key]?.learned}
                         onToggleRead={() => setWord(key, { learned: !progress.vocab[key]?.learned })}
+                        word={w}
+                        wordBookmarked={!!progress.vocab[key]?.bookmarked}
+                        onToggleWordBookmark={() => setWord(key, { bookmarked: !progress.vocab[key]?.bookmarked })}
                       />
                     );
                   })}
@@ -384,6 +418,10 @@ export default function Home() {
 
       <ScrollToTop targetRef={scrollRef} />
       <BottomNav active="home" visible={uiVisible} />
+
+      {showCelebration && (
+        <DailyCelebration streak={progress.streak} onDismiss={dismissCelebration} />
+      )}
     </div>
   );
 }
@@ -453,6 +491,74 @@ function TargetComplete({ label, onSeeAll }: { label: string; onSeeAll: () => vo
           style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-soft)', padding: 0 }}
         >
           See all {label} →
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Full-screen celebration overlay shown once per day when all daily tasks are done. */
+function DailyCelebration({ streak, onDismiss }: { streak: number; onDismiss: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-[999] flex items-center justify-center p-5"
+      style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(6px)' }}
+      onClick={onDismiss}
+    >
+      <div
+        className="relative w-full max-w-sm rounded-[28px] p-8 flex flex-col items-center text-center overflow-hidden"
+        style={{ background: 'var(--card)', boxShadow: '0 24px 60px rgba(0,0,0,0.35)' }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Confetti dots decoration */}
+        <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-[28px]">
+          {['top-3 left-5', 'top-6 right-8', 'top-12 left-1/3', 'top-2 right-1/4',
+            'bottom-10 left-6', 'bottom-6 right-10', 'bottom-14 left-1/2'].map((pos, i) => (
+            <span
+              key={i}
+              className={`absolute w-2 h-2 rounded-full opacity-60 ${pos}`}
+              style={{ background: ['#f59e0b','#10b981','#3b82f6','#ec4899','#8b5cf6','#ef4444','#06b6d4'][i] }}
+            />
+          ))}
+        </div>
+
+        {/* Trophy */}
+        <div
+          className="w-20 h-20 rounded-full flex items-center justify-center mb-4 shadow-lg"
+          style={{ background: 'linear-gradient(135deg, var(--saffron), var(--saffron-deep))' }}
+        >
+          <span className="text-4xl">🏆</span>
+        </div>
+
+        <h2 className="font-serif text-2xl font-bold mb-1" style={{ color: 'var(--ink)' }}>
+          Day Complete!
+        </h2>
+        <p className="text-sm mb-6" style={{ color: 'var(--ink-soft)' }}>
+          You've finished all of today's vocabulary and idioms. Amazing work!
+        </p>
+
+        {/* Streak badge */}
+        <div
+          className="flex items-center gap-3 px-6 py-4 rounded-2xl mb-6 w-full justify-center"
+          style={{ background: 'var(--amber-soft)' }}
+        >
+          <span className="text-3xl">🔥</span>
+          <div className="text-left">
+            <p className="text-[11px] font-bold uppercase tracking-widest" style={{ color: 'var(--saffron-deep)', opacity: 0.7 }}>
+              Current Streak
+            </p>
+            <p className="font-serif text-3xl font-bold leading-none" style={{ color: 'var(--saffron-deep)' }}>
+              {streak} {streak === 1 ? 'day' : 'days'}
+            </p>
+          </div>
+        </div>
+
+        <button
+          onClick={onDismiss}
+          className="w-full py-3.5 rounded-2xl font-bold text-white text-sm transition-all active:scale-95"
+          style={{ background: 'linear-gradient(135deg, var(--teal), #155f53)' }}
+        >
+          Keep it up! 💪
         </button>
       </div>
     </div>

@@ -1,43 +1,64 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import DesktopLayout from '../components/DesktopLayout';
 import { useSpeechSynthesis } from '../hooks/useSpeechSynthesis';
+import { useSpeechRecognition } from '../hooks/useSpeechRecognition';
 import type { DailyChallenge, GrammarChapterSummary, Idiom, Scenario, VocabWord } from '../types';
 
 interface HomeDesktopProps {
   challenge: DailyChallenge | null;
-  streak: number;
   todaysIdioms: Idiom[];
   todaysWords: VocabWord[];
   todaysGrammar: GrammarChapterSummary[];
   loading: boolean;
   progress: any;
   toggleIdiomLearned: (id: number) => void;
+  toggleIdiomBookmark: (id: number) => void;
   toggleGrammarComplete: (slug: string) => void;
-  setWord: (key: string, data: { learned: boolean }) => void;
+  setWord: (key: string, data: object) => void;
   wordKey: (w: VocabWord) => string;
   challengeScenario: Scenario | null;
+  showCelebration: boolean;
+  onDismissCelebration: () => void;
 }
 
 export default function HomeDesktop({
   challenge,
-  streak,
   todaysIdioms,
   todaysWords,
   todaysGrammar,
   loading,
   progress,
   toggleIdiomLearned,
+  toggleIdiomBookmark,
   toggleGrammarComplete,
   setWord,
   wordKey,
   challengeScenario,
+  showCelebration,
+  onDismissCelebration,
 }: HomeDesktopProps) {
   const navigate = useNavigate();
   const { speak, isSpeaking } = useSpeechSynthesis();
+  const [listeningFor, setListeningFor] = useState<string | null>(null);
+  const [heard, setHeard] = useState<string | null>(null);
+  const [matchResult, setMatchResult] = useState<boolean | null>(null);
+  const { isListening, isSupported, startListening, stopListening } = useSpeechRecognition({
+    onResult: (transcript) => {
+      if (!listeningFor) return;
+      const normalize = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, '').replace(/\s+/g, ' ').trim();
+      const t = normalize(listeningFor);
+      const h = normalize(transcript);
+      const ok = h === t || h.includes(t) || t.includes(h);
+      setHeard(transcript);
+      setMatchResult(ok);
+    },
+  });
+  const idiomBookmarkSet = new Set<number>(progress.idiomBookmarks ?? []);
 
   if (loading) {
     return (
-      <DesktopLayout activeTab="home" streak={streak}>
+      <DesktopLayout activeTab="home">
         <div className="flex-grow flex items-center justify-center min-h-[300px] text-sm text-on-surface-variant font-bold font-serif">
           Loading today's lesson…
         </div>
@@ -46,7 +67,8 @@ export default function HomeDesktop({
   }
 
   return (
-    <DesktopLayout activeTab="home" streak={streak}>
+    <>
+    <DesktopLayout activeTab="home">
       <div className="max-w-container-max mx-auto px-margin-mobile md:px-margin-desktop py-stack-lg flex flex-col gap-stack-lg">
         {/* Hero Section: Today's Challenge */}
         {challenge && (
@@ -148,31 +170,65 @@ export default function HomeDesktop({
                             expand_more
                           </span>
                         </summary>
-                        <div className="p-stack-sm pt-0 border-t border-outline-variant/10 bg-surface-container-lowest rounded-b-lg">
-                          <p className="font-body-md text-body-md text-on-surface-variant mt-3 mb-2 leading-relaxed">
+                        <div className="p-stack-sm pt-0 border-t border-outline-variant/10 bg-surface-container-lowest rounded-b-lg space-y-3">
+                          <p className="font-body-md text-body-md text-on-surface-variant mt-3 leading-relaxed">
                             {idiom.english_meaning}
                           </p>
                           {idiom.gujarati_meaning && (
-                            <p className="font-body-md text-body-md text-primary italic mb-4">
+                            <p className="font-body-md text-body-md text-primary italic">
                               {idiom.gujarati_meaning}
                             </p>
                           )}
-                          {idiom.examples?.[0] && (
-                            <div className="p-4 bg-surface-container-low rounded-md border-l-4 border-primary">
-                              <p className="font-body-md text-body-md text-on-surface italic">
-                                "{idiom.examples[0]}"
-                              </p>
+                          {idiom.examples && idiom.examples.length > 0 && (
+                            <div className="space-y-2">
+                              {idiom.examples.map((ex, ei) => (
+                                <div key={ei} className="p-3 bg-surface-container-low rounded-md border-l-4 border-primary">
+                                  <p className="font-body-md text-body-md text-on-surface italic">"{ex}"</p>
+                                </div>
+                              ))}
                             </div>
                           )}
-                          <div className="mt-4 flex justify-end gap-2">
-                            <button 
-                              onClick={() => speak(idiom.idiom)}
-                              disabled={isSpeaking}
-                              className="text-secondary font-label-sm text-label-sm uppercase hover:text-secondary-container transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-50 font-bold"
+                          <div className="flex justify-between items-center pt-1">
+                            <div className="flex gap-3">
+                              <button
+                                onClick={() => speak(idiom.idiom)}
+                                disabled={isSpeaking}
+                                className="text-secondary font-label-sm text-label-sm uppercase hover:text-secondary-container transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-50 font-bold"
+                              >
+                                <span className="material-symbols-outlined text-sm">volume_up</span> Pronounce
+                              </button>
+                              {isSupported && (
+                                <button
+                                  onClick={() => {
+                                    if (isListening && listeningFor === idiom.idiom) { stopListening(); return; }
+                                    setHeard(null); setMatchResult(null);
+                                    setListeningFor(idiom.idiom);
+                                    startListening();
+                                  }}
+                                  disabled={isSpeaking}
+                                  className="text-secondary font-label-sm text-label-sm uppercase hover:text-secondary-container transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-50 font-bold"
+                                >
+                                  <span className="material-symbols-outlined text-sm">{isListening && listeningFor === idiom.idiom ? 'stop' : 'mic'}</span>
+                                  {isListening && listeningFor === idiom.idiom ? 'Stop' : 'Speak'}
+                                </button>
+                              )}
+                            </div>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); e.preventDefault(); toggleIdiomBookmark(idiom.id); }}
+                              className="w-8 h-8 rounded-full flex items-center justify-center transition-all cursor-pointer border-none"
+                              style={{ color: idiomBookmarkSet.has(idiom.id) ? 'var(--saffron-deep)' : 'var(--on-surface-variant)', background: 'var(--surface-container)' }}
                             >
-                              <span className="material-symbols-outlined text-sm">volume_up</span> Pronounce
+                              <span className="material-symbols-outlined text-sm" style={{ fontVariationSettings: idiomBookmarkSet.has(idiom.id) ? "'FILL' 1" : "'FILL' 0" }}>bookmark</span>
                             </button>
                           </div>
+                          {isListening && listeningFor === idiom.idiom && (
+                            <p className="text-xs text-secondary">Listening…</p>
+                          )}
+                          {matchResult !== null && listeningFor === idiom.idiom && (
+                            <p className="text-xs font-medium" style={{ color: matchResult ? 'var(--teal)' : '#c0392b' }}>
+                              {matchResult ? '✓ Great pronunciation!' : `Heard: "${heard}" — try again`}
+                            </p>
+                          )}
                         </div>
                       </details>
                     );
@@ -203,17 +259,29 @@ export default function HomeDesktop({
                     const key = wordKey(word);
                     const isLearned = !!progress.vocab[key]?.learned;
                     return (
-                      <article 
-                        key={key} 
+                      <article
+                        key={key}
                         className={`bg-surface-container-lowest border rounded-xl p-stack-md flex flex-col gap-base transition-all duration-300 hover:border-primary/30 hover:-translate-y-0.5 ${
                           isLearned ? 'border-primary/40 bg-surface-container-low/40' : 'border-primary/10'
                         }`}
                       >
                         <div className="flex items-start justify-between">
                           <div>
-                            <span className="font-label-sm text-label-sm text-secondary uppercase tracking-wider block mb-1">
-                              {word.category} · {word.part_of_speech}
-                            </span>
+                            <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+                              <span className="font-label-sm text-label-sm text-secondary uppercase tracking-wider">
+                                {word.part_of_speech}
+                              </span>
+                              {word.difficulty && (
+                                <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded"
+                                  style={
+                                    word.difficulty === 'Advanced' ? { background: 'var(--rose-soft)', color: '#c0392b' }
+                                    : word.difficulty === 'Intermediate' ? { background: 'var(--amber-soft)', color: 'var(--saffron-deep)' }
+                                    : { background: 'var(--teal-soft)', color: 'var(--teal)' }
+                                  }>
+                                  {word.difficulty}
+                                </span>
+                              )}
+                            </div>
                             <h3 className={`font-title-md text-title-md text-on-background font-serif ${isLearned ? 'line-through opacity-75' : ''}`}>
                               {word.word}
                             </h3>
@@ -221,37 +289,127 @@ export default function HomeDesktop({
                           <button
                             onClick={() => setWord(key, { learned: !isLearned })}
                             className={`w-7 h-7 rounded-full flex items-center justify-center border transition-all cursor-pointer ${
-                              isLearned 
-                                ? 'bg-primary border-primary text-white' 
+                              isLearned
+                                ? 'bg-primary border-primary text-white'
                                 : 'bg-surface border-outline-variant/50 text-outline hover:text-primary hover:border-primary'
                             }`}
                           >
                             <span className="material-symbols-outlined text-[14px]">check</span>
                           </button>
                         </div>
-                        <p className="font-body-md text-body-md text-on-surface-variant">
-                          {word.english_meaning}
-                        </p>
+                        <p className="font-body-md text-body-md text-on-surface-variant">{word.english_meaning}</p>
                         {word.gujarati_meaning && (
                           <p className="font-body-md text-body-md text-on-surface-variant italic border-l-2 border-outline-variant/30 pl-3">
                             {word.gujarati_meaning}
                           </p>
                         )}
-                        {word.examples?.[0] && (
-                          <div className="mt-2 bg-surface-variant/30 rounded-lg p-3">
-                            <span className="font-label-sm text-label-sm text-outline uppercase tracking-wider block mb-1">Example:</span>
-                            <p className="font-body-md text-body-md text-on-background italic">"{word.examples[0]}"</p>
+                        {word.examples && word.examples.length > 0 && (
+                          <div className="space-y-2">
+                            {word.examples.map((ex, ei) => (
+                              <div key={ei} className="bg-surface-variant/30 rounded-lg p-3">
+                                <span className="font-label-sm text-label-sm text-outline uppercase tracking-wider block mb-1">Example:</span>
+                                <p className="font-body-md text-body-md text-on-background italic">"{ex}"</p>
+                              </div>
+                            ))}
                           </div>
                         )}
-                        <div className="mt-auto pt-3 border-t border-outline-variant/10 flex justify-end">
-                          <button 
-                            onClick={() => speak(word.word)}
-                            disabled={isSpeaking}
-                            className="text-primary font-label-sm text-label-sm uppercase hover:underline transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                        {word.synonyms && word.synonyms.length > 0 && (
+                          <div>
+                            <p className="font-label-sm text-label-sm text-outline uppercase tracking-wider mb-1.5">Synonyms</p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {word.synonyms.map(s => (
+                                <span key={s} className="text-[11px] px-2 py-0.5 rounded-full font-medium"
+                                  style={{ background: 'var(--teal-soft)', color: 'var(--teal)' }}>{s}</span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {word.antonyms && word.antonyms.length > 0 && (
+                          <div>
+                            <p className="font-label-sm text-label-sm text-outline uppercase tracking-wider mb-1.5">Antonyms</p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {word.antonyms.map(a => (
+                                <span key={a} className="text-[11px] px-2 py-0.5 rounded-full font-medium"
+                                  style={{ background: 'var(--rose-soft)', color: '#c0392b' }}>{a}</span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {word.collocations && word.collocations.length > 0 && (
+                          <div>
+                            <p className="font-label-sm text-label-sm text-outline uppercase tracking-wider mb-1.5">Collocations</p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {word.collocations.map(c => (
+                                <span key={c} className="text-[11px] px-2 py-0.5 rounded-full font-medium"
+                                  style={{ background: 'var(--amber-soft)', color: 'var(--saffron-deep)' }}>{c}</span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {word.word_forms && word.word_forms.length > 0 && (
+                          <div>
+                            <p className="font-label-sm text-label-sm text-outline uppercase tracking-wider mb-1.5">Word Forms</p>
+                            <div className="flex flex-wrap gap-1.5">
+                              {word.word_forms.map(f => (
+                                <span key={f} className="text-[11px] px-2 py-0.5 rounded-full font-medium"
+                                  style={{ background: 'var(--surface-container)', color: 'var(--on-surface)' }}>{f}</span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                        {word.memory_tip && (
+                          <div className="rounded-lg p-3" style={{ background: 'var(--amber-soft)' }}>
+                            <p className="font-label-sm text-label-sm uppercase tracking-wider mb-1" style={{ color: 'var(--saffron-deep)' }}>Memory Tip</p>
+                            <p className="text-[12px] leading-relaxed text-on-background">{word.memory_tip}</p>
+                          </div>
+                        )}
+                        {word.usage_note && (
+                          <div className="rounded-lg p-3 bg-surface-container-low">
+                            <p className="font-label-sm text-label-sm uppercase tracking-wider mb-1 text-outline">Usage Note</p>
+                            <p className="text-[12px] leading-relaxed text-on-background">{word.usage_note}</p>
+                          </div>
+                        )}
+                        <div className="mt-auto pt-3 border-t border-outline-variant/10 flex justify-between items-center">
+                          <div className="flex gap-3">
+                            <button
+                              onClick={() => speak(word.word)}
+                              disabled={isSpeaking}
+                              className="text-primary font-label-sm text-label-sm uppercase hover:underline transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                            >
+                              <span className="material-symbols-outlined text-sm">volume_up</span> Pronounce
+                            </button>
+                            {isSupported && (
+                              <button
+                                onClick={() => {
+                                  if (isListening && listeningFor === word.word) { stopListening(); return; }
+                                  setHeard(null); setMatchResult(null);
+                                  setListeningFor(word.word);
+                                  startListening();
+                                }}
+                                disabled={isSpeaking}
+                                className="text-secondary font-label-sm text-label-sm uppercase hover:underline transition-colors flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                              >
+                                <span className="material-symbols-outlined text-sm">{isListening && listeningFor === word.word ? 'stop' : 'mic'}</span>
+                                {isListening && listeningFor === word.word ? 'Stop' : 'Speak'}
+                              </button>
+                            )}
+                          </div>
+                          <button
+                            onClick={() => setWord(key, { bookmarked: !progress.vocab[key]?.bookmarked })}
+                            className="w-7 h-7 rounded-full flex items-center justify-center transition-all cursor-pointer border-none"
+                            style={{ color: progress.vocab[key]?.bookmarked ? 'var(--saffron-deep)' : 'var(--outline)', background: 'none' }}
                           >
-                            <span className="material-symbols-outlined text-sm">volume_up</span> Pronounce
+                            <span className="material-symbols-outlined text-sm"
+                              style={{ fontVariationSettings: progress.vocab[key]?.bookmarked ? "'FILL' 1" : "'FILL' 0" }}>
+                              bookmark
+                            </span>
                           </button>
                         </div>
+                        {matchResult !== null && listeningFor === word.word && (
+                          <p className="text-xs font-medium" style={{ color: matchResult ? 'var(--teal)' : '#c0392b' }}>
+                            {matchResult ? '✓ Great pronunciation!' : `Heard: "${heard}" — try again`}
+                          </p>
+                        )}
                       </article>
                     );
                   })}
@@ -354,5 +512,74 @@ export default function HomeDesktop({
         </div>
       </div>
     </DesktopLayout>
+
+    {showCelebration && (
+      <DailyCelebration streak={progress.streak} onDismiss={onDismissCelebration} />
+    )}
+  </>
+  );
+}
+
+function DailyCelebration({ streak, onDismiss }: { streak: number; onDismiss: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-[999] flex items-center justify-center p-5"
+      style={{ background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(6px)' }}
+      onClick={onDismiss}
+    >
+      <div
+        className="relative w-full max-w-md rounded-[32px] p-10 flex flex-col items-center text-center overflow-hidden"
+        style={{ background: 'var(--card)', boxShadow: '0 32px 80px rgba(0,0,0,0.4)' }}
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-[32px]">
+          {['top-4 left-6', 'top-8 right-10', 'top-16 left-1/3', 'top-3 right-1/4',
+            'bottom-12 left-8', 'bottom-7 right-12', 'bottom-16 left-1/2'].map((pos, i) => (
+            <span
+              key={i}
+              className={`absolute w-2.5 h-2.5 rounded-full opacity-50 ${pos}`}
+              style={{ background: ['#f59e0b','#10b981','#3b82f6','#ec4899','#8b5cf6','#ef4444','#06b6d4'][i] }}
+            />
+          ))}
+        </div>
+
+        <div
+          className="w-24 h-24 rounded-full flex items-center justify-center mb-5 shadow-xl"
+          style={{ background: 'linear-gradient(135deg, var(--saffron), var(--saffron-deep))' }}
+        >
+          <span className="text-5xl">🏆</span>
+        </div>
+
+        <h2 className="font-serif text-3xl font-bold mb-2" style={{ color: 'var(--ink)' }}>
+          Day Complete!
+        </h2>
+        <p className="text-base mb-8" style={{ color: 'var(--ink-soft)' }}>
+          You've finished all of today's vocabulary and idioms. Amazing work!
+        </p>
+
+        <div
+          className="flex items-center gap-4 px-8 py-5 rounded-2xl mb-8 w-full justify-center"
+          style={{ background: 'var(--amber-soft)' }}
+        >
+          <span className="text-4xl">🔥</span>
+          <div className="text-left">
+            <p className="text-[11px] font-bold uppercase tracking-widest" style={{ color: 'var(--saffron-deep)', opacity: 0.7 }}>
+              Current Streak
+            </p>
+            <p className="font-serif text-4xl font-bold leading-none" style={{ color: 'var(--saffron-deep)' }}>
+              {streak} {streak === 1 ? 'day' : 'days'}
+            </p>
+          </div>
+        </div>
+
+        <button
+          onClick={onDismiss}
+          className="w-full py-4 rounded-2xl font-bold text-white text-base transition-all active:scale-95 hover:opacity-90"
+          style={{ background: 'linear-gradient(135deg, var(--teal), #155f53)' }}
+        >
+          Keep it up! 💪
+        </button>
+      </div>
+    </div>
   );
 }
